@@ -20,6 +20,15 @@ export interface CandidateInfo {
   mediaStatus: MediaStatus
 }
 
+export interface RoomStatus {
+  room: string
+  candidates: number
+  proctors: number
+  full: boolean
+  active: boolean
+  capacity: number
+}
+
 // ---- Signalling message shapes exchanged with the FastAPI WebSocket ----
 
 export type SignalMessageType =
@@ -34,6 +43,7 @@ export type SignalMessageType =
   | 'ice-candidate'
   | 'proctor-left'
   | 'room-full'
+  | 'room-not-started'
   | 'ping'
   | 'pong'
 

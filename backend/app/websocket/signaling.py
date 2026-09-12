@@ -38,6 +38,13 @@ async def signaling_endpoint(websocket: WebSocket, room_id: str, role: str, part
         await websocket.close(code=4403)
         return
 
+    # Candidates may only join a room a proctor has already started.
+    if role == "candidate" and not room_service.is_active(room_id):
+        await websocket.accept()
+        await websocket.send_json({"type": "room-not-started"})
+        await websocket.close(code=4404)
+        return
+
     await connection_manager.connect(websocket, room_id, role, participant_id)
 
     if role == "candidate":
@@ -61,6 +68,7 @@ async def signaling_endpoint(websocket: WebSocket, room_id: str, role: str, part
 
     else:  # proctor
         room_service.add_proctor(room_id, participant_id)
+        room_service.start_room(room_id)
 
         # Send the newly connected proctor the current candidate list.
         await websocket.send_json({
@@ -113,6 +121,7 @@ async def signaling_endpoint(websocket: WebSocket, room_id: str, role: str, part
             })
         else:
             room_service.remove_proctor(room_id, participant_id)
+            room_service.stop_room_if_empty(room_id)
             # Let candidates know this proctor's peer connection is gone.
             for candidate_id in room_service.list_candidates(room_id).keys():
                 await connection_manager.send_to(room_id, "candidate", candidate_id, {
@@ -124,3 +133,4 @@ async def signaling_endpoint(websocket: WebSocket, room_id: str, role: str, part
                 await websocket.close()
             except Exception:
                 pass
+            

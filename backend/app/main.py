@@ -27,11 +27,20 @@ async def root():
 async def room_status(room_id: str):
     room = room_service.get_room(room_id)
     if room is None:
-        return {"room": room_id, "candidates": 0, "proctors": 0, "full": False, "capacity": MAX_CANDIDATES_PER_ROOM}
+        return {
+            "room": room_id,
+            "candidates": 0,
+            "proctors": 0,
+            "full": False,
+            "active": False,
+            "capacity": MAX_CANDIDATES_PER_ROOM,
+        }
     return {
         "room": room_id,
         "candidates": len(room.candidates),
         "proctors": len(room.proctors),
         "full": room.is_full(),
+        "active": room.active,
         "capacity": MAX_CANDIDATES_PER_ROOM,
     }
+    

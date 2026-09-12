@@ -36,6 +36,33 @@ export default function Instructions() {
     navigate('/candidate/room')
   }
 
+  const handleRetry = () => {
+    setLoadError('')
+    candidateSession.retryConnect().catch(() => setLoadError('Could not reach the signalling server.'))
+  }
+
+  // Block the whole system-check flow until a proctor has started this
+  // room - joining before then is what caused the proctor page to show
+  // "could not reach the signalling server" / candidates never appearing.
+  if (session.roomNotStarted) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
+        <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <h1 style={{ margin: 0 }}>YProctor</h1>
+          <section style={cardStyle}>
+            <h2 style={sectionTitle}>Waiting for the proctor</h2>
+            <p style={{ fontSize: 14, color: '#374151' }}>
+              This room hasn't been started yet. Ask your proctor to log in first, then click retry below.
+            </p>
+            <button style={{ ...buttonStyle, width: 'auto' }} onClick={handleRetry}>
+              Retry
+            </button>
+          </section>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
       <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>

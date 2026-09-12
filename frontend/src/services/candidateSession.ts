@@ -18,6 +18,10 @@ class CandidateSession {
   cameraStream: MediaStream | null = null
   screenStream: MediaStream | null = null
   status: MediaStatus = { camera: 'pending', microphone: 'pending', screen: 'pending', webrtc: 'disconnected' }
+  // True if the backend rejected us because no proctor has started the
+  // room yet. Distinct from a generic connect failure so the UI can show
+  // a specific "waiting for proctor" message instead of a hard error.
+  roomNotStarted = false
 
   private pendingOfferRequests = new Set<string>()
   private listeners = new Set<Listener>()
@@ -46,17 +50,26 @@ class CandidateSession {
     if (this.connectPromise) return this.connectPromise
 
     this.identity = identity
+    this.roomNotStarted = false
     this.connectPromise = (async () => {
       const client = new SignalingClient(identity)
+      client.onMessage((msg) => this.handleMessage(msg))
       await client.connect()
       this.signaling = client
-      client.onMessage((msg) => this.handleMessage(msg))
       this.sendStatus()
     })().finally(() => {
       this.connectPromise = null
     })
 
     return this.connectPromise
+  }
+
+  /** Re-attempt connecting after a room-not-started rejection. */
+  retryConnect(): Promise<void> {
+    if (!this.identity) return Promise.resolve()
+    this.roomNotStarted = false
+    this.emit()
+    return this.ensureConnected(this.identity)
   }
 
   private handleMessage(msg: SignalMessage) {
@@ -81,6 +94,14 @@ class CandidateSession {
         break
       case 'room-full':
         this.status = { ...this.status, webrtc: 'error' }
+        this.emit()
+        break
+      case 'room-not-started':
+        // The backend accepts-then-closes the socket for this case, so
+        // clear our reference to it and surface a distinct UI state
+        // rather than the generic "could not reach server" error.
+        this.signaling = null
+        this.roomNotStarted = true
         this.emit()
         break
     }

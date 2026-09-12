@@ -30,6 +30,9 @@ class Room:
     room_id: str
     candidates: Dict[str, Participant] = field(default_factory=dict)
     proctors: Dict[str, Participant] = field(default_factory=dict)
+    # True once at least one proctor has joined. Candidates are only
+    # allowed to join a room that a proctor has already started.
+    active: bool = False
 
     def is_full(self) -> bool:
         return len(self.candidates) >= MAX_CANDIDATES_PER_ROOM
@@ -52,6 +55,24 @@ class RoomService:
     def room_is_full(self, room_id: str) -> bool:
         room = self._rooms.get(room_id)
         return bool(room and room.is_full())
+
+    def is_active(self, room_id: str) -> bool:
+        """A room is only 'active' once a proctor has started it."""
+        room = self._rooms.get(room_id)
+        return bool(room and room.active)
+
+    def start_room(self, room_id: str) -> Room:
+        """Called when a proctor connects - marks the room as started."""
+        room = self.get_or_create_room(room_id)
+        room.active = True
+        return room
+
+    def stop_room_if_empty(self, room_id: str) -> None:
+        """Called when a proctor disconnects. If no proctors remain,
+        deactivate the room so new candidates can't join unattended."""
+        room = self._rooms.get(room_id)
+        if room and len(room.proctors) == 0:
+            room.active = False
 
     def add_candidate(self, room_id: str, candidate_id: str) -> Participant:
         room = self.get_or_create_room(room_id)
