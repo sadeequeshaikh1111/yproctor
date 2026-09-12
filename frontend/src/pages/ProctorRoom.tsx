@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CandidateCard from '../components/CandidateCard'
+import PinnedCandidatePanel from '../components/PinnedCandidatePanel'
 import MediaPanel from '../components/MediaPanel'
 import ConnectionStatus from '../components/ConnectionStatus'
 import { SignalingClient } from '../services/websocket'
@@ -18,6 +19,9 @@ interface CandidateEntry {
 const EMPTY_STATUS: MediaStatus = { camera: 'pending', microphone: 'pending', screen: 'pending', webrtc: 'disconnected' }
 
 const MAX_CANDIDATES = 5
+// Pin slots mirror the room's candidate cap - there's never a reason to
+// pin more candidates than can ever be in the room at once.
+const MAX_PINS = MAX_CANDIDATES
 
 export default function ProctorRoom() {
   const navigate = useNavigate()
@@ -25,6 +29,9 @@ export default function ProctorRoom() {
   const [candidates, setCandidates] = useState<Record<string, CandidateEntry>>({})
   const [focusId, setFocusId] = useState<string | null>(null)
   const [connectionError, setConnectionError] = useState('')
+  // Ordered list (not a Set) so pin position / numbering (1, 2, 3...) stays
+  // stable as candidates are pinned/unpinned rather than jumping around.
+  const [pinnedIds, setPinnedIds] = useState<string[]>([])
 
   const signalingRef = useRef<SignalingClient | null>(null)
   const peerManagerRef = useRef<ProctorPeerManager | null>(null)
@@ -105,6 +112,7 @@ export default function ProctorRoom() {
             return next
           })
           setFocusId((f) => (f === id ? null : f))
+          setPinnedIds((prev) => prev.filter((pid) => pid !== id))
           break
         }
         case 'candidate-media-status': {
@@ -137,6 +145,15 @@ export default function ProctorRoom() {
 
   const candidateList = Object.values(candidates)
   const focused = focusId ? candidates[focusId] : null
+  const unpinnedList = candidateList.filter((c) => !pinnedIds.includes(c.id))
+
+  const togglePin = (candidateId: string) => {
+    setPinnedIds((prev) => {
+      if (prev.includes(candidateId)) return prev.filter((id) => id !== candidateId)
+      if (prev.length >= MAX_PINS) return prev
+      return [...prev, candidateId]
+    })
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
@@ -150,6 +167,32 @@ export default function ProctorRoom() {
 
         {connectionError && <div style={{ color: '#ef4444' }}>{connectionError}</div>}
 
+        {pinnedIds.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <h2 style={{ margin: 0, fontSize: 15, color: '#374151' }}>
+              Pinned ({pinnedIds.length}/{MAX_PINS})
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(pinnedIds.length, 2)}, 1fr)`, gap: 16 }}>
+              {pinnedIds.map((id, i) => {
+                const c = candidates[id]
+                if (!c) return null
+                return (
+                  <PinnedCandidatePanel
+                    key={id}
+                    position={i + 1}
+                    candidateId={id}
+                    room={identity.room}
+                    proctorId={identity.id}
+                    streams={c.streams}
+                    mediaStatus={c.mediaStatus}
+                    onUnpin={() => togglePin(id)}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {focused ? (
           <div style={{ background: '#fff', borderRadius: 10, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -157,7 +200,7 @@ export default function ProctorRoom() {
               <button onClick={() => setFocusId(null)} style={closeButtonStyle}>Close</button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, maxWidth: 900 }}>
-              <MediaPanel stream={focused.streams.camera} label="WEBCAM" placeholder="Waiting for camera" />
+              <MediaPanel stream={focused.streams.camera} label="WEBCAM" placeholder="Waiting for camera" muted={false} />
               <MediaPanel stream={focused.streams.screen} label="SCREEN" placeholder="Waiting for screen" />
             </div>
             <div style={{ display: 'flex', gap: 20, marginTop: 12 }}>
@@ -167,22 +210,31 @@ export default function ProctorRoom() {
               <ConnectionStatus label="Screen" state={focused.mediaStatus.screen} />
             </div>
           </div>
-        ) : candidateList.length === 0 ? (
+        ) : unpinnedList.length === 0 && pinnedIds.length === 0 ? (
           <div style={{ color: '#6b7280', fontSize: 14 }}>Waiting for candidates to join...</div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-            {candidateList.map((c) => (
-              <CandidateCard
-                key={c.id}
-                candidateId={c.id}
-                room={identity.room}
-                streams={c.streams}
-                mediaStatus={c.mediaStatus}
-                onFocus={() => setFocusId(c.id)}
-              />
-            ))}
+        ) : unpinnedList.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {pinnedIds.length > 0 && (
+              <h2 style={{ margin: 0, fontSize: 15, color: '#374151' }}>All candidates</h2>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+              {unpinnedList.map((c) => (
+                <CandidateCard
+                  key={c.id}
+                  candidateId={c.id}
+                  room={identity.room}
+                  proctorId={identity.id}
+                  streams={c.streams}
+                  mediaStatus={c.mediaStatus}
+                  pinned={false}
+                  pinDisabled={pinnedIds.length >= MAX_PINS}
+                  onFocus={() => setFocusId(c.id)}
+                  onTogglePin={() => togglePin(c.id)}
+                />
+              ))}
+            </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )

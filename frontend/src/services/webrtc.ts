@@ -160,6 +160,15 @@ export class ProctorPeerManager {
   async handleOffer(candidateId: string, sdp: RTCSessionDescriptionInit): Promise<void> {
     const entry = this.ensurePeer(candidateId)
     await entry.pc.setRemoteDescription(new RTCSessionDescription(sdp))
+
+    // The proctor never captures its own camera/mic and must never send
+    // media back to a candidate - only receive. Pinning every transceiver
+    // to recvonly here keeps that true structurally, even if a future
+    // change accidentally attaches local tracks on this side.
+    entry.pc.getTransceivers().forEach((t) => {
+      t.direction = 'recvonly'
+    })
+
     for (const candidate of entry.pendingIce) {
       await entry.pc.addIceCandidate(new RTCIceCandidate(candidate))
     }

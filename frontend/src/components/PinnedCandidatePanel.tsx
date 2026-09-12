@@ -5,57 +5,58 @@ import { useAudioLevel } from '../hooks/useAudioLevel'
 import type { MediaStatus } from '../types'
 import type { RemoteCandidateStreams } from '../services/webrtc'
 
-interface CandidateCardProps {
+interface PinnedCandidatePanelProps {
+  position: number // 1-based pin slot number, shown as a badge
   candidateId: string
   room: string
   proctorId: string
   streams: RemoteCandidateStreams
   mediaStatus: MediaStatus
-  pinned: boolean
-  pinDisabled: boolean
-  onFocus: () => void
-  onTogglePin: () => void
+  onUnpin: () => void
 }
 
-export default function CandidateCard({
-  candidateId, room, proctorId, streams, mediaStatus, pinned, pinDisabled, onFocus, onTogglePin,
-}: CandidateCardProps) {
+export default function PinnedCandidatePanel({
+  position,
+  candidateId,
+  room,
+  proctorId,
+  streams,
+  mediaStatus,
+  onUnpin,
+}: PinnedCandidatePanelProps) {
   const speaking = useAudioLevel(streams.camera)
   const [muted, setMuted] = useState(false)
 
-  const openInNewTab = (e: React.MouseEvent) => {
-    e.stopPropagation()
+  const openInNewTab = () => {
     const url = `/proctor/focus?room=${encodeURIComponent(room)}&proctor=${encodeURIComponent(proctorId)}&candidate=${encodeURIComponent(candidateId)}`
     window.open(url, '_blank', 'noopener')
   }
 
-  const toggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setMuted((m) => !m)
-  }
-
-  const togglePin = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!pinned && pinDisabled) return
-    onTogglePin()
-  }
-
   return (
     <div
-      onClick={onFocus}
       style={{
+        position: 'relative',
         border: speaking ? '2px solid #22c55e' : '1px solid #e5e7eb',
         boxShadow: speaking ? '0 0 0 3px rgba(34,197,94,0.25)' : undefined,
         borderRadius: 10,
-        padding: 10,
+        padding: 12,
         background: '#fff',
-        cursor: 'pointer',
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
         transition: 'border-color 120ms ease, box-shadow 120ms ease',
       }}
     >
+      <span
+        style={{
+          position: 'absolute', top: -10, left: -10, width: 24, height: 24, borderRadius: '50%',
+          background: '#111827', color: '#fff', fontSize: 12, fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {position}
+      </span>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <strong>
           {candidateId}
@@ -65,31 +66,22 @@ export default function CandidateCard({
             </span>
           )}
         </strong>
-        <span style={{ fontSize: 12, color: '#6b7280' }}>{room}</span>
+        <button onClick={onUnpin} style={unpinButtonStyle}>Unpin</button>
       </div>
 
-      <MediaPanel stream={streams.camera} label="WEBCAM" placeholder="Waiting for camera" muted={muted} />
-      <MediaPanel stream={streams.screen} label="SCREEN" placeholder="Waiting for screen" />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <MediaPanel stream={streams.camera} label="WEBCAM" placeholder="Waiting for camera" muted={muted} />
+        <MediaPanel stream={streams.screen} label="SCREEN" placeholder="Waiting for screen" />
+      </div>
 
       <div style={{ display: 'flex', gap: 6 }}>
-        <button
-          onClick={togglePin}
-          disabled={!pinned && pinDisabled}
-          style={{
-            ...smallButtonStyle,
-            background: pinned ? '#111827' : '#f9fafb',
-            color: pinned ? '#fff' : '#111827',
-            cursor: !pinned && pinDisabled ? 'not-allowed' : 'pointer',
-            opacity: !pinned && pinDisabled ? 0.5 : 1,
-          }}
-        >
-          {pinned ? 'Unpin' : 'Pin'}
-        </button>
         <button onClick={openInNewTab} style={smallButtonStyle}>Open in new tab</button>
-        <button onClick={toggleMute} style={smallButtonStyle}>{muted ? 'Unmute' : 'Mute'}</button>
+        <button onClick={() => setMuted((m) => !m)} style={smallButtonStyle}>
+          {muted ? 'Unmute' : 'Mute'}
+        </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, columnGap: 14 }}>
         <ConnectionStatus label="WebRTC" state={mediaStatus.webrtc} />
         <ConnectionStatus label="Camera" state={mediaStatus.camera} />
         <ConnectionStatus label="Mic" state={mediaStatus.microphone} />
@@ -102,4 +94,9 @@ export default function CandidateCard({
 const smallButtonStyle: React.CSSProperties = {
   flex: 1, padding: '4px 8px', fontSize: 12, borderRadius: 6, border: '1px solid #d1d5db',
   background: '#f9fafb', cursor: 'pointer',
+}
+
+const unpinButtonStyle: React.CSSProperties = {
+  padding: '2px 8px', fontSize: 11, borderRadius: 6, border: '1px solid #d1d5db',
+  background: '#fff', cursor: 'pointer',
 }
