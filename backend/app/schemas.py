@@ -37,3 +37,16 @@ class RoomSummaryOut(BaseModel):
     room_no: str
     candidate_count: int
     exam_names: list[str]
+    
+class ProfileOut(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+    role: str
+    room: str | None = None  # candidate's currently-assigned room; null for proctors
+
+
+class LoginResponse(ProfileOut):
+    access_token: str
+    token_type: str = "bearer"

@@ -1,10 +1,10 @@
 function resolveApiBase(): string {
   const override = (import.meta as any).env?.VITE_API_BASE
   if (override) return override
-  const isSecure = window.location.protocol === 'https:'
-  const scheme = isSecure ? 'https' : 'http'
-  const port = (import.meta as any).env?.VITE_WS_PORT || '8000'
-  return `${scheme}://${window.location.hostname}:${port}`
+  // Same-origin: the Vite dev server proxies /api to the FastAPI backend
+  // (see vite.config.ts). The browser then only needs to trust the frontend's
+  // certificate - no separate "Proceed" for the backend on :8000.
+  return ''
 }
 
 export const API_BASE = resolveApiBase()

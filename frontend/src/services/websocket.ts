@@ -1,19 +1,16 @@
 import type { Identity, SignalMessage } from '../types'
 
-const BACKEND_PORT = (import.meta as any).env?.VITE_WS_PORT || '8000'
-
 /**
  * Resolve the signalling WebSocket base URL.
  *
  * Explicit override: set VITE_WS_BASE to point at a backend running
  * somewhere else entirely.
  *
- * Otherwise, derive it from the page itself: same hostname the browser
- * used to load the app (so this works unchanged from localhost or from
- * a phone hitting the dev machine's LAN IP), and ws:// vs wss:// matching
- * the page's own protocol. This matters because a page served over
- * https:// is only allowed to open wss:// connections - mixing in a
- * plain ws:// call gets silently blocked as mixed content.
+ * Otherwise use the page's own origin: the Vite dev server proxies /ws to
+ * the backend (see vite.config.ts), so the browser only ever touches one
+ * origin and one certificate. wss:// when the page is https, else ws:// -
+ * a page served over https can only open wss:// connections (plain ws://
+ * gets silently blocked as mixed content).
  */
 function resolveWsBase(): string {
   const override = (import.meta as any).env?.VITE_WS_BASE
@@ -21,7 +18,7 @@ function resolveWsBase(): string {
 
   const isSecure = window.location.protocol === 'https:'
   const scheme = isSecure ? 'wss' : 'ws'
-  return `${scheme}://${window.location.hostname}:${BACKEND_PORT}`
+  return `${scheme}://${window.location.host}`
 }
 
 const WS_BASE = resolveWsBase()

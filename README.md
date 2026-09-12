@@ -62,16 +62,16 @@ npm install
 npm run dev
 ```
 
-The app starts at `http://localhost:5173`. By default the signalling
-WebSocket URL is derived from whatever hostname/protocol you loaded the
-page with (so it works unchanged from `localhost` or from a LAN IP) on
-port `8000`. Override the port with `VITE_WS_PORT`, or override the whole
-URL with `VITE_WS_BASE` if the backend runs somewhere else entirely:
+The app starts at `http://localhost:5173`. By default the API (`/api`) and
+the signalling WebSocket (`/ws`) are **proxied by the Vite dev server to the
+backend on port `8000`** — so the browser only ever talks to one origin and
+needs to trust a single certificate. Override the proxy backend with
+`VITE_PROXY_TARGET` in `vite.config.ts`, point API calls elsewhere with
+`VITE_API_BASE`, or point the WebSocket elsewhere with `VITE_WS_BASE`,
+e.g.:
 
 ```bash
-VITE_WS_PORT=9000 npm run dev
-# or
-VITE_WS_BASE=ws://localhost:9000 npm run dev
+VITE_WS_BASE=ws://localhost:9000 npm run dev   # WebSocket to a different backend
 ```
 
 ## Testing over your LAN (e.g. proctor on a phone)
@@ -110,13 +110,18 @@ npm run dev -- --host
 
 It will print `https://192.168.1.12:5173/` as the Network URL.
 
-**4. On the other device (e.g. your phone), first visit the backend once**
-to accept its certificate warning — `https://192.168.1.12:8000/` — tap
-through "Advanced / Proceed anyway". Self-signed certs aren't trusted by
-default, and a WebSocket connection to an untrusted origin fails silently
-with no prompt, so this step has to happen first, in a normal browser tab.
+**4. Open the frontend:** `https://192.168.1.12:5173/login` and accept its
+self-signed certificate warning (**Advanced → Proceed**) once.
 
-**5. Then open the frontend:** `https://192.168.1.12:5173/login`.
+Because the dev server proxies `/api` and `/ws` to the backend, **that is
+the only certificate warning you will ever see** — there's no need to open
+`https://192.168.1.12:8000` separately (the old two-cert dance).
+
+> If you hit the app with something that bypasses the proxy (e.g. `curl`,
+> or a `VITE_API_BASE`/`VITE_WS_BASE` override), you still need to accept
+> the backend certificate once at `https://192.168.1.12:8000/` first;
+> certificate exceptions are per-origin, and an untrusted WebSocket origin
+> fails silently with no prompt.
 
 If you'd rather avoid the "not secure" warnings entirely, install
 [mkcert](https://github.com/FiloSottile/mkcert) and use it in place of

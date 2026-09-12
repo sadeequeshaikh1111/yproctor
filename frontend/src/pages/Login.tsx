@@ -90,7 +90,16 @@ export default function Login() {
 
           {error && <div style={errorStyle}>{error}</div>}
 
-          <button type="submit" style={buttonStyle}>Enter Room</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button type="submit" style={buttonStyle}>Enter Room</button>
+            <button
+              type="button"
+              onClick={() => { setPendingIdentity(null); setRooms([]); setError('') }}
+              style={{ ...buttonStyle, background: '#fff', color: '#111827', border: '1px solid #d1d5db' }}
+            >
+              ← Change account / room
+            </button>
+          </div>
         </form>
       </div>
     )
