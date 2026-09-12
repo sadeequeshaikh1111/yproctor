@@ -7,7 +7,8 @@ import ConnectionStatus from '../components/ConnectionStatus'
 import { SignalingClient } from '../services/websocket'
 import { ProctorPeerManager } from '../services/webrtc'
 import type { RemoteCandidateStreams } from '../services/webrtc'
-import { restoreIdentity, clearIdentity } from '../services/session'
+import { restoreIdentity, clearIdentity, saveIdentity } from '../services/session'
+import { fetchActiveRooms } from '../services/auth'
 import type { Identity, MediaStatus, ConnState } from '../types'
 
 interface CandidateEntry {
@@ -16,11 +17,15 @@ interface CandidateEntry {
   streams: RemoteCandidateStreams
 }
 
+interface RoomOption {
+  room_no: string
+  candidate_count: number
+  exam_names: string[]
+}
+
 const EMPTY_STATUS: MediaStatus = { camera: 'pending', microphone: 'pending', screen: 'pending', webrtc: 'disconnected' }
 
 const MAX_CANDIDATES = 5
-// Pin slots mirror the room's candidate cap - there's never a reason to
-// pin more candidates than can ever be in the room at once.
 const MAX_PINS = MAX_CANDIDATES
 
 export default function ProctorRoom() {
@@ -29,12 +34,112 @@ export default function ProctorRoom() {
   const [candidates, setCandidates] = useState<Record<string, CandidateEntry>>({})
   const [focusId, setFocusId] = useState<string | null>(null)
   const [connectionError, setConnectionError] = useState('')
-  // Ordered list (not a Set) so pin position / numbering (1, 2, 3...) stays
-  // stable as candidates are pinned/unpinned rather than jumping around.
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
+  const [rooms, setRooms] = useState<RoomOption[]>([])
+  const [switching, setSwitching] = useState(false)
 
   const signalingRef = useRef<SignalingClient | null>(null)
   const peerManagerRef = useRef<ProctorPeerManager | null>(null)
+
+  const teardownConnection = () => {
+    peerManagerRef.current?.closeAll()
+    peerManagerRef.current = null
+    signalingRef.current?.close()
+    signalingRef.current = null
+  }
+
+  const connectToRoom = (ident: Identity) => {
+    setCandidates({})
+    setFocusId(null)
+    setPinnedIds([])
+    setConnectionError('')
+
+    const signaling = new SignalingClient(ident)
+    signalingRef.current = signaling
+
+    const peerManager = new ProctorPeerManager(
+      signaling,
+      (candidateId, streams) => {
+        setCandidates((prev) => ({
+          ...prev,
+          [candidateId]: {
+            id: candidateId,
+            mediaStatus: prev[candidateId]?.mediaStatus ?? EMPTY_STATUS,
+            streams,
+          },
+        }))
+      },
+      (candidateId, state) => {
+        const webrtc: ConnState =
+          state === 'connected' ? 'connected'
+          : state === 'connecting' || state === 'new' ? 'connecting'
+          : state === 'failed' || state === 'disconnected' || state === 'closed' ? 'disconnected'
+          : 'pending'
+        setCandidates((prev) => {
+          const existing = prev[candidateId]
+          if (!existing) return prev
+          return {
+            ...prev,
+            [candidateId]: { ...existing, mediaStatus: { ...existing.mediaStatus, webrtc } },
+          }
+        })
+      },
+    )
+    peerManagerRef.current = peerManager
+
+    signaling.onMessage((msg) => {
+      switch (msg.type) {
+        case 'candidate-list': {
+          const list = (msg.payload ?? []) as { id: string; mediaStatus: MediaStatus }[]
+          setCandidates((prev) => {
+            const next = { ...prev }
+            list.forEach((c) => {
+              next[c.id] = { id: c.id, mediaStatus: c.mediaStatus, streams: prev[c.id]?.streams ?? {} }
+            })
+            return next
+          })
+          break
+        }
+        case 'candidate-joined': {
+          const c = msg.payload as { id: string; mediaStatus: MediaStatus }
+          setCandidates((prev) => ({
+            ...prev,
+            [c.id]: { id: c.id, mediaStatus: c.mediaStatus, streams: prev[c.id]?.streams ?? {} },
+          }))
+          break
+        }
+        case 'candidate-left': {
+          const { id } = msg.payload as { id: string }
+          peerManagerRef.current?.handleCandidateLeft(id)
+          setCandidates((prev) => {
+            const next = { ...prev }
+            delete next[id]
+            return next
+          })
+          setFocusId((f) => (f === id ? null : f))
+          setPinnedIds((prev) => prev.filter((pid) => pid !== id))
+          break
+        }
+        case 'candidate-media-status': {
+          const { id, mediaStatus } = msg.payload as { id: string; mediaStatus: MediaStatus }
+          setCandidates((prev) => {
+            const existing = prev[id]
+            if (!existing) return prev
+            return { ...prev, [id]: { ...existing, mediaStatus: { ...existing.mediaStatus, ...mediaStatus } } }
+          })
+          break
+        }
+        case 'offer':
+          if (msg.from) peerManagerRef.current?.handleOffer(msg.from, msg.payload)
+          break
+        case 'ice-candidate':
+          if (msg.from) peerManagerRef.current?.handleIceCandidate(msg.from, msg.payload)
+          break
+      }
+    })
+
+    signaling.connect().catch(() => setConnectionError('Could not reach the signalling server.'))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -48,113 +153,53 @@ export default function ProctorRoom() {
       }
 
       setIdentity(restored)
+      connectToRoom(restored)
 
-      const signaling = new SignalingClient(restored)
-      signalingRef.current = signaling
-
-      const peerManager = new ProctorPeerManager(
-        signaling,
-        (candidateId, streams) => {
-          setCandidates((prev) => ({
-            ...prev,
-            [candidateId]: {
-              id: candidateId,
-              mediaStatus: prev[candidateId]?.mediaStatus ?? EMPTY_STATUS,
-              streams,
-            },
-          }))
-        },
-        (candidateId, state) => {
-          const webrtc: ConnState =
-            state === 'connected' ? 'connected'
-            : state === 'connecting' || state === 'new' ? 'connecting'
-            : state === 'failed' || state === 'disconnected' || state === 'closed' ? 'disconnected'
-            : 'pending'
-          setCandidates((prev) => {
-            const existing = prev[candidateId]
-            if (!existing) return prev
-            return {
-              ...prev,
-              [candidateId]: { ...existing, mediaStatus: { ...existing.mediaStatus, webrtc } },
-            }
-          })
-        },
-      )
-      peerManagerRef.current = peerManager
-
-      signaling.onMessage((msg) => {
-        switch (msg.type) {
-          case 'candidate-list': {
-            const list = (msg.payload ?? []) as { id: string; mediaStatus: MediaStatus }[]
-            setCandidates((prev) => {
-              const next = { ...prev }
-              list.forEach((c) => {
-                next[c.id] = { id: c.id, mediaStatus: c.mediaStatus, streams: prev[c.id]?.streams ?? {} }
-              })
-              return next
-            })
-            break
-          }
-          case 'candidate-joined': {
-            const c = msg.payload as { id: string; mediaStatus: MediaStatus }
-            setCandidates((prev) => ({
-              ...prev,
-              [c.id]: { id: c.id, mediaStatus: c.mediaStatus, streams: prev[c.id]?.streams ?? {} },
-            }))
-            break
-          }
-          case 'candidate-left': {
-            const { id } = msg.payload as { id: string }
-            peerManagerRef.current?.handleCandidateLeft(id)
-            setCandidates((prev) => {
-              const next = { ...prev }
-              delete next[id]
-              return next
-            })
-            setFocusId((f) => (f === id ? null : f))
-            setPinnedIds((prev) => prev.filter((pid) => pid !== id))
-            break
-          }
-          case 'candidate-media-status': {
-            const { id, mediaStatus } = msg.payload as { id: string; mediaStatus: MediaStatus }
-            setCandidates((prev) => {
-              const existing = prev[id]
-              if (!existing) return prev
-              return { ...prev, [id]: { ...existing, mediaStatus: { ...existing.mediaStatus, ...mediaStatus } } }
-            })
-            break
-          }
-          case 'offer':
-            if (msg.from) peerManagerRef.current?.handleOffer(msg.from, msg.payload)
-            break
-          case 'ice-candidate':
-            if (msg.from) peerManagerRef.current?.handleIceCandidate(msg.from, msg.payload)
-            break
-        }
-      })
-
-      signaling.connect().catch(() => setConnectionError('Could not reach the signalling server.'))
+      fetchActiveRooms(restored.token)
+        .then((list) => {
+          if (!cancelled) setRooms(list)
+        })
+        .catch(() => {
+          // Non-fatal - the room switcher just won't have options beyond the current room.
+        })
     })
 
     return () => {
       cancelled = true
-      peerManagerRef.current?.closeAll()
-      signalingRef.current?.close()
+      teardownConnection()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate])
 
   if (!identity) return null
 
   const handleLogout = () => {
-    peerManagerRef.current?.closeAll()
-    signalingRef.current?.close()
+    teardownConnection()
     clearIdentity()
     navigate('/login')
+  }
+
+  const handleRoomChange = (newRoom: string) => {
+    if (!identity || newRoom === identity.room || switching) return
+    setSwitching(true)
+    teardownConnection()
+    const newIdentity: Identity = { ...identity, room: newRoom }
+    saveIdentity(newIdentity)
+    setIdentity(newIdentity)
+    connectToRoom(newIdentity)
+    setSwitching(false)
   }
 
   const candidateList = Object.values(candidates)
   const focused = focusId ? candidates[focusId] : null
   const unpinnedList = candidateList.filter((c) => !pinnedIds.includes(c.id))
+
+  // Make sure the currently connected room always appears as an option,
+  // even if it fell out of the /api/proctor/rooms "active" list for some
+  // reason (e.g. its last candidate just left).
+  const roomOptions = rooms.some((r) => r.room_no === identity.room)
+    ? rooms
+    : [{ room_no: identity.room, candidate_count: candidateList.length, exam_names: [] }, ...rooms]
 
   const togglePin = (candidateId: string) => {
     setPinnedIds((prev) => {
@@ -171,7 +216,25 @@ export default function ProctorRoom() {
           <div>
             <h1 style={{ margin: 0 }}>YProctor Test Room</h1>
             <div style={{ color: '#6b7280', fontSize: 14 }}>
-              Room: {identity.room} · {candidateList.length}/{MAX_CANDIDATES} candidates
+              {identity.firstName} {identity.lastName} · {identity.email} · ID: {identity.id} · {identity.role}
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ fontSize: 13, color: '#374151' }}>Room:</label>
+              <select
+                value={identity.room}
+                onChange={(e) => handleRoomChange(e.target.value)}
+                disabled={switching}
+                style={roomSelectStyle}
+              >
+                {roomOptions.map((r) => (
+                  <option key={r.room_no} value={r.room_no}>
+                    {r.room_no} — {r.candidate_count} candidate{r.candidate_count === 1 ? '' : 's'}
+                  </option>
+                ))}
+              </select>
+              <span style={{ fontSize: 13, color: '#6b7280' }}>
+                {candidateList.length}/{MAX_CANDIDATES} candidates
+              </span>
             </div>
           </div>
           <button onClick={handleLogout} style={logoutButtonStyle}>Log out</button>
@@ -258,4 +321,8 @@ const closeButtonStyle: React.CSSProperties = {
 
 const logoutButtonStyle: React.CSSProperties = {
   padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13,
+}
+
+const roomSelectStyle: React.CSSProperties = {
+  padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13,
 }

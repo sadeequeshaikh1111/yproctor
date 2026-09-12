@@ -59,6 +59,18 @@ export default function Instructions() {
     candidateSession.retryConnect().catch(() => setLoadError('Could not reach the signalling server.'))
   }
 
+  const identityHeader = (
+    <div>
+      <h1 style={{ margin: 0 }}>YProctor</h1>
+      <div style={{ color: '#6b7280', fontSize: 14 }}>
+        {identity.firstName} {identity.lastName} · {identity.email} · ID: {identity.id} · {identity.role}
+      </div>
+      <div style={{ marginTop: 4, fontSize: 15, fontWeight: 600, color: '#111827' }}>
+        Room: {identity.room}
+      </div>
+    </div>
+  )
+
   // Block the whole system-check flow until a proctor has started this
   // room - joining before then is what caused the proctor page to show
   // "could not reach the signalling server" / candidates never appearing.
@@ -66,7 +78,7 @@ export default function Instructions() {
     return (
       <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
         <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <h1 style={{ margin: 0 }}>YProctor</h1>
+          {identityHeader}
           <section style={cardStyle}>
             <h2 style={sectionTitle}>Waiting for the proctor</h2>
             <p style={{ fontSize: 14, color: '#374151' }}>
@@ -84,10 +96,7 @@ export default function Instructions() {
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
       <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>YProctor</h1>
-          <div style={{ color: '#6b7280', fontSize: 14 }}>Room: {identity.room}</div>
-        </div>
+        {identityHeader}
 
         {loadError && <div style={{ color: '#ef4444' }}>{loadError}</div>}
 
