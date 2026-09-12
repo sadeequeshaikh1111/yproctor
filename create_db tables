@@ -1,0 +1,110 @@
+-- backend/schema.sql
+-- Run with: psql -U postgres -d yproctor -f schema.sql
+
+-- ── Enums ──────────────────────────────────────────────────────────
+CREATE TYPE registration_status AS ENUM (
+    'registered', 'in_progress', 'completed', 'no_show'
+);
+
+CREATE TYPE attempt_status AS ENUM (
+    'in_progress', 'submitted'
+);
+
+-- ── People ─────────────────────────────────────────────────────────
+CREATE TABLE candidates (
+    id          SERIAL PRIMARY KEY,
+    first_name  VARCHAR NOT NULL,
+    last_name   VARCHAR NOT NULL,
+    email       VARCHAR NOT NULL UNIQUE,
+    contact     VARCHAR,
+    info        JSONB DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE proctors (
+    id          SERIAL PRIMARY KEY,
+    first_name  VARCHAR NOT NULL,
+    last_name   VARCHAR NOT NULL,
+    email       VARCHAR NOT NULL UNIQUE,
+    contact     VARCHAR,
+    info        JSONB DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE admins (
+    id             SERIAL PRIMARY KEY,
+    username       VARCHAR NOT NULL UNIQUE,
+    password_hash  VARCHAR NOT NULL,
+    email          VARCHAR UNIQUE,
+    info           JSONB DEFAULT '{}'::jsonb,
+    created_at     TIMESTAMP DEFAULT NOW()
+);
+
+-- ── Exam definition ────────────────────────────────────────────────
+CREATE TABLE exams (
+    id                SERIAL PRIMARY KEY,
+    name              VARCHAR NOT NULL,
+    blueprint         JSONB DEFAULT '[]'::jsonb,   -- [{"count":10,"marks":2}, ...]
+    duration_minutes  INTEGER,
+    start_time        TIMESTAMP,
+    end_time          TIMESTAMP,
+    fees              FLOAT DEFAULT 0,
+    created_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE question_bank (
+    id              SERIAL PRIMARY KEY,
+    exam_id         INTEGER NOT NULL REFERENCES exams(id),
+    question_text   VARCHAR NOT NULL,
+    options         JSONB NOT NULL,                -- ["a","b","c","d"]
+    correct_option  VARCHAR NOT NULL,
+    marks           FLOAT DEFAULT 1,
+    language        VARCHAR DEFAULT 'en',
+    question_type   VARCHAR DEFAULT 'single_choice', -- single_choice | multi_choice | true_false
+    subject         VARCHAR,
+    tag             VARCHAR,
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_question_bank_exam_id ON question_bank(exam_id);
+
+-- ── Registration & attempts ────────────────────────────────────────
+CREATE TABLE exam_register (
+    id            SERIAL PRIMARY KEY,
+    exam_id       INTEGER NOT NULL REFERENCES exams(id),
+    candidate_id  INTEGER NOT NULL REFERENCES candidates(id),
+    room_no       VARCHAR,
+    status        registration_status DEFAULT 'registered',
+    created_at    TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_exam_register_exam_id ON exam_register(exam_id);
+CREATE INDEX idx_exam_register_candidate_id ON exam_register(candidate_id);
+
+CREATE TABLE exam_attempts (
+    id                 SERIAL PRIMARY KEY,
+    exam_register_id   INTEGER NOT NULL UNIQUE REFERENCES exam_register(id),
+    qp_json            JSONB NOT NULL,             -- [{id,text,options,correct_option,marks,question_type}, ...]
+    answers            JSONB DEFAULT '{}'::jsonb,  -- {question_id: selected_option}
+    start_time         TIMESTAMP,                  -- snapshotted from exams.start_time
+    end_time           TIMESTAMP,                  -- snapshotted from exams.end_time
+    started_at         TIMESTAMP DEFAULT NOW(),    -- when candidate actually opened the paper
+    submitted_at       TIMESTAMP,
+    score              FLOAT,
+    status             attempt_status DEFAULT 'in_progress',
+    created_at         TIMESTAMP DEFAULT NOW()
+);
+
+-- ── Permanent results archive ──────────────────────────────────────
+CREATE TABLE exam_results (
+    id            SERIAL PRIMARY KEY,
+    exam_id       INTEGER NOT NULL,
+    candidate_id  INTEGER NOT NULL,
+    score         FLOAT,
+    total_marks   FLOAT,
+    percentage    FLOAT,
+    published_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_exam_results_exam_id ON exam_results(exam_id);
+CREATE INDEX idx_exam_results_candidate_id ON exam_results(candidate_id);

@@ -1,0 +1,10 @@
+candidates / proctors            exams                          exam_register
+├─ id                            ├─ id                           ├─ id
+├─ first_name                    ├─ name                         ├─ exam_id (FK)
+├─ last_name                     ├─ questions (JSON)  ← bank     ├─ candidate_id (FK)
+├─ email                         ├─ qpset (JSON)      ← rule     ├─ room_no
+├─ contact                       ├─ fees                         ├─ status
+└─ info (JSON) ← gender/dob/etc  └─ created_at                   ├─ qp_file  ← encrypted, per-candidate
+                                                                  ├─ generated_at
+admins                                                           └─ created_at
+├─ id, username, password_hash, email, info (JSON)

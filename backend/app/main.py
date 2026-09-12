@@ -1,10 +1,14 @@
+# backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.websocket.signaling import router as signaling_router
 from app.services.room_service import room_service, MAX_CANDIDATES_PER_ROOM
+from app.db import init_db
+from app.api import router as api_router
+from app.auth import router as auth_router
 
-app = FastAPI(title="YProctor Signalling Server")
+app = FastAPI(title="YProctor Signalling Server")   # ← app must exist before any include_router
 
 # Wide-open CORS for the POC - this is not for production use.
 app.add_middleware(
@@ -16,6 +20,13 @@ app.add_middleware(
 )
 
 app.include_router(signaling_router)
+app.include_router(api_router)
+app.include_router(auth_router)
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 
 @app.get("/")
