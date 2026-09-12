@@ -4,6 +4,10 @@ export interface Identity {
   id: string
   role: Role
   room: string
+  token: string
+  email?: string
+  firstName?: string
+  lastName?: string
 }
 
 export type ConnState = 'pending' | 'connecting' | 'connected' | 'disconnected' | 'error'

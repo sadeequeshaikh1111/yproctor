@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ConnectionStatus from '../components/ConnectionStatus'
 import { candidateSession, useCandidateSession } from '../services/candidateSession'
+import { restoreIdentity, clearIdentity } from '../services/session'
 import type { Identity } from '../types'
-import { STORAGE_KEY } from '../types'
 
 const QUESTIONS = [
   { q: 'What is 2 + 2?', options: ['3', '4', '5', '6'] },
@@ -19,24 +19,29 @@ export default function CandidateRoom() {
   const [selected, setSelected] = useState<string | null>(null)
 
   useEffect(() => {
-    const raw = sessionStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      navigate('/login')
-      return
-    }
-    const parsed: Identity = JSON.parse(raw)
-    if (parsed.role !== 'candidate') {
-      navigate('/login')
-      return
-    }
-    setIdentity(parsed)
+    let cancelled = false
 
-    // Safety net: if the candidate landed here directly without finishing
-    // the Instructions flow, send them back.
-    if (!candidateSession.cameraStream || !candidateSession.screenStream) {
-      navigate('/candidate/instructions')
-    } else {
-      candidateSession.startWebRTC()
+    restoreIdentity('candidate').then((restored) => {
+      if (cancelled) return
+
+      if (!restored || !restored.room) {
+        navigate('/login')
+        return
+      }
+
+      setIdentity(restored)
+
+      // Safety net: if the candidate landed here directly without finishing
+      // the Instructions flow, send them back.
+      if (!candidateSession.cameraStream || !candidateSession.screenStream) {
+        navigate('/candidate/instructions')
+      } else {
+        candidateSession.startWebRTC()
+      }
+    })
+
+    return () => {
+      cancelled = true
     }
   }, [navigate])
 
@@ -49,12 +54,20 @@ export default function CandidateRoom() {
     setQuestionIndex((i) => i + 1)
   }
 
+  const handleLogout = () => {
+    clearIdentity()
+    navigate('/login')
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
       <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>YProctor</h1>
-          <div style={{ color: '#6b7280', fontSize: 14 }}>Room: {identity.room}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ margin: 0 }}>YProctor</h1>
+            <div style={{ color: '#6b7280', fontSize: 14 }}>Room: {identity.room}</div>
+          </div>
+          <button onClick={handleLogout} style={logoutButtonStyle}>Log out</button>
         </div>
 
         <div style={{ background: '#fff', borderRadius: 10, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
@@ -95,4 +108,8 @@ export default function CandidateRoom() {
       </div>
     </div>
   )
+}
+
+const logoutButtonStyle: React.CSSProperties = {
+  padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13,
 }

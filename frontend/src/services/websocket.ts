@@ -39,8 +39,8 @@ export class SignalingClient {
   }
 
   connect(): Promise<void> {
-    const { room, role, id } = this.identity
-    const url = `${WS_BASE}/ws/${encodeURIComponent(room)}/${role}/${encodeURIComponent(id)}`
+  const { room, role, id, token } = this.identity
+  const url = `${WS_BASE}/ws/${encodeURIComponent(room)}/${role}/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`
 
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url)

@@ -17,6 +17,9 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Candidate, Proctor, Exam, ExamRegister, RegistrationStatus
 from app.schemas import ExamRegistrationOut, RoomSummaryOut
+from app.auth import get_current_proctor  # add to imports
+
+
 
 router = APIRouter(prefix="/api")
 
@@ -97,7 +100,7 @@ def list_proctors(db: Session = Depends(get_db)):
 
 
 @router.get("/proctor/rooms", response_model=list[RoomSummaryOut])
-def active_rooms(db: Session = Depends(get_db)):
+def active_rooms(db: Session = Depends(get_db), _proctor=Depends(get_current_proctor)):
     rows = (
         db.query(ExamRegister, Exam)
         .join(Exam, Exam.id == ExamRegister.exam_id)

@@ -15,6 +15,10 @@ from starlette.websockets import WebSocketState
 
 from app.services.room_service import room_service
 from app.websocket.manager import connection_manager
+from fastapi import HTTPException
+from app.auth import decode_access_token  # add to imports
+
+
 
 router = APIRouter()
 
@@ -25,9 +29,24 @@ def _candidate_snapshot(room_id: str) -> list[dict]:
         for c in room_service.list_candidates(room_id).values()
     ]
 
-
 @router.websocket("/ws/{room_id}/{role}/{participant_id}")
 async def signaling_endpoint(websocket: WebSocket, room_id: str, role: str, participant_id: str):
+    if role not in ("candidate", "proctor"):
+        await websocket.close(code=4400)
+        return
+
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4401)
+        return
+    try:
+        payload = decode_access_token(token)
+    except HTTPException:
+        await websocket.close(code=4401)
+        return
+    if payload.get("role") != role or str(payload.get("sub")) != participant_id:
+        await websocket.close(code=4401)
+        return
     if role not in ("candidate", "proctor"):
         await websocket.close(code=4400)
         return

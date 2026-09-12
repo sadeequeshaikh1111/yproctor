@@ -7,8 +7,8 @@ import ConnectionStatus from '../components/ConnectionStatus'
 import { SignalingClient } from '../services/websocket'
 import { ProctorPeerManager } from '../services/webrtc'
 import type { RemoteCandidateStreams } from '../services/webrtc'
+import { restoreIdentity, clearIdentity } from '../services/session'
 import type { Identity, MediaStatus, ConnState } from '../types'
-import { STORAGE_KEY } from '../types'
 
 interface CandidateEntry {
   id: string
@@ -37,111 +37,120 @@ export default function ProctorRoom() {
   const peerManagerRef = useRef<ProctorPeerManager | null>(null)
 
   useEffect(() => {
-    const raw = sessionStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      navigate('/login')
-      return
-    }
-    const parsed: Identity = JSON.parse(raw)
-    if (parsed.role !== 'proctor') {
-      navigate('/login')
-      return
-    }
-    setIdentity(parsed)
+    let cancelled = false
 
-    const signaling = new SignalingClient(parsed)
-    signalingRef.current = signaling
+    restoreIdentity('proctor').then((restored) => {
+      if (cancelled) return
 
-    const peerManager = new ProctorPeerManager(
-      signaling,
-      (candidateId, streams) => {
-        setCandidates((prev) => ({
-          ...prev,
-          [candidateId]: {
-            id: candidateId,
-            mediaStatus: prev[candidateId]?.mediaStatus ?? EMPTY_STATUS,
-            streams,
-          },
-        }))
-      },
-      (candidateId, state) => {
-        const webrtc: ConnState =
-          state === 'connected' ? 'connected'
-          : state === 'connecting' || state === 'new' ? 'connecting'
-          : state === 'failed' || state === 'disconnected' || state === 'closed' ? 'disconnected'
-          : 'pending'
-        setCandidates((prev) => {
-          const existing = prev[candidateId]
-          if (!existing) return prev
-          return {
-            ...prev,
-            [candidateId]: { ...existing, mediaStatus: { ...existing.mediaStatus, webrtc } },
-          }
-        })
-      },
-    )
-    peerManagerRef.current = peerManager
+      if (!restored || !restored.room) {
+        navigate('/login')
+        return
+      }
 
-    signaling.onMessage((msg) => {
-      switch (msg.type) {
-        case 'candidate-list': {
-          const list = (msg.payload ?? []) as { id: string; mediaStatus: MediaStatus }[]
-          setCandidates((prev) => {
-            const next = { ...prev }
-            list.forEach((c) => {
-              next[c.id] = { id: c.id, mediaStatus: c.mediaStatus, streams: prev[c.id]?.streams ?? {} }
-            })
-            return next
-          })
-          break
-        }
-        case 'candidate-joined': {
-          const c = msg.payload as { id: string; mediaStatus: MediaStatus }
+      setIdentity(restored)
+
+      const signaling = new SignalingClient(restored)
+      signalingRef.current = signaling
+
+      const peerManager = new ProctorPeerManager(
+        signaling,
+        (candidateId, streams) => {
           setCandidates((prev) => ({
             ...prev,
-            [c.id]: { id: c.id, mediaStatus: c.mediaStatus, streams: prev[c.id]?.streams ?? {} },
+            [candidateId]: {
+              id: candidateId,
+              mediaStatus: prev[candidateId]?.mediaStatus ?? EMPTY_STATUS,
+              streams,
+            },
           }))
-          break
-        }
-        case 'candidate-left': {
-          const { id } = msg.payload as { id: string }
-          peerManagerRef.current?.handleCandidateLeft(id)
+        },
+        (candidateId, state) => {
+          const webrtc: ConnState =
+            state === 'connected' ? 'connected'
+            : state === 'connecting' || state === 'new' ? 'connecting'
+            : state === 'failed' || state === 'disconnected' || state === 'closed' ? 'disconnected'
+            : 'pending'
           setCandidates((prev) => {
-            const next = { ...prev }
-            delete next[id]
-            return next
-          })
-          setFocusId((f) => (f === id ? null : f))
-          setPinnedIds((prev) => prev.filter((pid) => pid !== id))
-          break
-        }
-        case 'candidate-media-status': {
-          const { id, mediaStatus } = msg.payload as { id: string; mediaStatus: MediaStatus }
-          setCandidates((prev) => {
-            const existing = prev[id]
+            const existing = prev[candidateId]
             if (!existing) return prev
-            return { ...prev, [id]: { ...existing, mediaStatus: { ...existing.mediaStatus, ...mediaStatus } } }
+            return {
+              ...prev,
+              [candidateId]: { ...existing, mediaStatus: { ...existing.mediaStatus, webrtc } },
+            }
           })
-          break
+        },
+      )
+      peerManagerRef.current = peerManager
+
+      signaling.onMessage((msg) => {
+        switch (msg.type) {
+          case 'candidate-list': {
+            const list = (msg.payload ?? []) as { id: string; mediaStatus: MediaStatus }[]
+            setCandidates((prev) => {
+              const next = { ...prev }
+              list.forEach((c) => {
+                next[c.id] = { id: c.id, mediaStatus: c.mediaStatus, streams: prev[c.id]?.streams ?? {} }
+              })
+              return next
+            })
+            break
+          }
+          case 'candidate-joined': {
+            const c = msg.payload as { id: string; mediaStatus: MediaStatus }
+            setCandidates((prev) => ({
+              ...prev,
+              [c.id]: { id: c.id, mediaStatus: c.mediaStatus, streams: prev[c.id]?.streams ?? {} },
+            }))
+            break
+          }
+          case 'candidate-left': {
+            const { id } = msg.payload as { id: string }
+            peerManagerRef.current?.handleCandidateLeft(id)
+            setCandidates((prev) => {
+              const next = { ...prev }
+              delete next[id]
+              return next
+            })
+            setFocusId((f) => (f === id ? null : f))
+            setPinnedIds((prev) => prev.filter((pid) => pid !== id))
+            break
+          }
+          case 'candidate-media-status': {
+            const { id, mediaStatus } = msg.payload as { id: string; mediaStatus: MediaStatus }
+            setCandidates((prev) => {
+              const existing = prev[id]
+              if (!existing) return prev
+              return { ...prev, [id]: { ...existing, mediaStatus: { ...existing.mediaStatus, ...mediaStatus } } }
+            })
+            break
+          }
+          case 'offer':
+            if (msg.from) peerManagerRef.current?.handleOffer(msg.from, msg.payload)
+            break
+          case 'ice-candidate':
+            if (msg.from) peerManagerRef.current?.handleIceCandidate(msg.from, msg.payload)
+            break
         }
-        case 'offer':
-          if (msg.from) peerManagerRef.current?.handleOffer(msg.from, msg.payload)
-          break
-        case 'ice-candidate':
-          if (msg.from) peerManagerRef.current?.handleIceCandidate(msg.from, msg.payload)
-          break
-      }
+      })
+
+      signaling.connect().catch(() => setConnectionError('Could not reach the signalling server.'))
     })
 
-    signaling.connect().catch(() => setConnectionError('Could not reach the signalling server.'))
-
     return () => {
+      cancelled = true
       peerManagerRef.current?.closeAll()
       signalingRef.current?.close()
     }
   }, [navigate])
 
   if (!identity) return null
+
+  const handleLogout = () => {
+    peerManagerRef.current?.closeAll()
+    signalingRef.current?.close()
+    clearIdentity()
+    navigate('/login')
+  }
 
   const candidateList = Object.values(candidates)
   const focused = focusId ? candidates[focusId] : null
@@ -158,11 +167,14 @@ export default function ProctorRoom() {
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
       <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>YProctor Test Room</h1>
-          <div style={{ color: '#6b7280', fontSize: 14 }}>
-            Room: {identity.room} · {candidateList.length}/{MAX_CANDIDATES} candidates
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ margin: 0 }}>YProctor Test Room</h1>
+            <div style={{ color: '#6b7280', fontSize: 14 }}>
+              Room: {identity.room} · {candidateList.length}/{MAX_CANDIDATES} candidates
+            </div>
           </div>
+          <button onClick={handleLogout} style={logoutButtonStyle}>Log out</button>
         </div>
 
         {connectionError && <div style={{ color: '#ef4444' }}>{connectionError}</div>}
@@ -242,4 +254,8 @@ export default function ProctorRoom() {
 
 const closeButtonStyle: React.CSSProperties = {
   padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer',
+}
+
+const logoutButtonStyle: React.CSSProperties = {
+  padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13,
 }

@@ -136,3 +136,18 @@ class ExamResult(Base):
     total_marks = Column(Float)
     percentage = Column(Float)
     published_at = Column(DateTime, default=datetime.utcnow)
+    
+    
+    
+class ProfileOut(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+    role: str
+    room: str | None = None  # candidate's currently-assigned room; null for proctors
+
+
+class LoginResponse(ProfileOut):
+    access_token: str
+    token_type: str = "bearer"

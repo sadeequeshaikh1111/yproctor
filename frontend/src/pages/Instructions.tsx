@@ -3,28 +3,46 @@ import { useNavigate } from 'react-router-dom'
 import MediaPanel from '../components/MediaPanel'
 import ConnectionStatus from '../components/ConnectionStatus'
 import { candidateSession, useCandidateSession } from '../services/candidateSession'
+import { restoreIdentity } from '../services/session'
 import type { Identity } from '../types'
-import { STORAGE_KEY } from '../types'
 
 export default function Instructions() {
   const navigate = useNavigate()
   const session = useCandidateSession()
+  const [identity, setIdentity] = useState<Identity | null>(null)
   const [consent, setConsent] = useState({ camera: false, microphone: false, screen: false })
   const [loadError, setLoadError] = useState('')
+  const [restoring, setRestoring] = useState(true)
 
   useEffect(() => {
-    const raw = sessionStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      navigate('/login')
-      return
+    let cancelled = false
+
+    restoreIdentity('candidate').then((restored) => {
+      if (cancelled) return
+      setRestoring(false)
+
+      if (!restored) {
+        navigate('/login')
+        return
+      }
+
+      if (!restored.room) {
+        setLoadError('You are not currently assigned to a room. Contact your exam coordinator.')
+        return
+      }
+
+      setIdentity(restored)
+      candidateSession
+        .ensureConnected(restored)
+        .catch(() => setLoadError('Could not reach the signalling server.'))
+    })
+
+    return () => {
+      cancelled = true
     }
-    const identity: Identity = JSON.parse(raw)
-    if (identity.role !== 'candidate') {
-      navigate('/login')
-      return
-    }
-    candidateSession.ensureConnected(identity).catch(() => setLoadError('Could not reach the signalling server.'))
   }, [navigate])
+
+  if (restoring || !identity) return null
 
   const allConsented = consent.camera && consent.microphone && consent.screen
   const allChecksPassed = session.readyToStart
@@ -66,7 +84,10 @@ export default function Instructions() {
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: 24 }}>
       <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
-        <h1 style={{ margin: 0 }}>YProctor</h1>
+        <div>
+          <h1 style={{ margin: 0 }}>YProctor</h1>
+          <div style={{ color: '#6b7280', fontSize: 14 }}>Room: {identity.room}</div>
+        </div>
 
         {loadError && <div style={{ color: '#ef4444' }}>{loadError}</div>}
 
