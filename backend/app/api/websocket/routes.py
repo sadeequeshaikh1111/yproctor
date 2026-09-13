@@ -14,9 +14,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from app.services.room_service import room_service
-from app.websocket.manager import connection_manager
+from app.api.websocket.manager import connection_manager
 from fastapi import HTTPException
-from app.auth import decode_access_token  # add to imports
+from app.core.security import decode_access_token  # add to imports
 
 
 

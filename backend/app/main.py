@@ -2,11 +2,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.websocket.signaling import router as signaling_router
+from app.api.websocket.routes import router as signaling_router
 from app.services.room_service import room_service, MAX_CANDIDATES_PER_ROOM
 from app.db import init_db
 from app.api import router as api_router
-from app.auth import router as auth_router
+from app.api.auth import router as auth_router
 
 app = FastAPI(title="YProctor Signalling Server")   # ← app must exist before any include_router
 

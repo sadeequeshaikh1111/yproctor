@@ -1,4 +1,4 @@
-# backend/app/api.py
+# backend/app/api/routes.py
 """
 Minimal REST API: candidates, proctors, exams, registration, plus the
 two read endpoints candidates/proctors actually hit after login
@@ -10,43 +10,19 @@ Registering for an exam just creates the exam_register row.
 """
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Candidate, Proctor, Exam, ExamRegister, RegistrationStatus
-from app.schemas import ExamRegistrationOut, RoomSummaryOut
-from app.auth import get_current_proctor  # add to imports
-
+from app.api.schema import ExamRegistrationOut, RoomSummaryOut, PersonIn, ExamIn, RegisterIn
+from app.api.auth.service import get_current_proctor  # add to imports
 
 
 router = APIRouter(prefix="/api")
 
 
 # ── Request bodies ────────────────────────────────────────────────
-class PersonIn(BaseModel):
-    first_name: str
-    last_name: str
-    email: str
-    password: str
-    contact: str | None = None
-    info: dict = {}
-
-
-class ExamIn(BaseModel):
-    name: str
-    blueprint: list[dict] = []          # [{"count":10,"marks":2}, ...]
-    duration_minutes: int | None = None
-    start_time: datetime | None = None
-    end_time: datetime | None = None
-    fees: float = 0
-
-
-class RegisterIn(BaseModel):
-    exam_id: int
-    candidate_id: int
-    room_no: str | None = None
+# PersonIn, ExamIn, RegisterIn moved to app.api.schema
 
 
 def _person(p) -> dict:
@@ -146,4 +122,5 @@ def register_for_exam(body: RegisterIn, db: Session = Depends(get_db)):
     db.add(reg); db.commit(); db.refresh(reg)
     return {"registration_id": reg.id, "exam_id": exam.id, "candidate_id": candidate.id,
             "room_no": reg.room_no, "status": reg.status}
+    
     
